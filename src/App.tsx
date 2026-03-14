@@ -15,7 +15,7 @@ const HashikenGame = () => {
   
   const [dialogueStep, setDialogueStep] = useState(0); 
   
-  const [isBgmPlaying, setIsBgmPlaying] = useState(false);
+  const [bgmMode, setBgmMode] = useState(0); // 0: off, 1: track 1, 2: track 2, 3: track 3
   const [soundEnabled, setSoundEnabled] = useState(true); 
   const [aiLoadedStatus, setAiLoadedStatus] = useState('loading'); // 'loading', 'ready', 'error'
   const [isShaking, setIsShaking] = useState(false);
@@ -72,7 +72,10 @@ const HashikenGame = () => {
   };
 
   // BGM 引擎：獨立運行，強制銷毀防重疊
-  const toggleBGM = () => {
+  const cycleBGM = () => {
+    const nextMode = (bgmMode + 1) % 4;
+    setBgmMode(nextMode);
+    
     // 1. 強制清除並銷毀舊音軌
     if (bgmIntervalRef.current) {
       clearInterval(bgmIntervalRef.current);
@@ -83,7 +86,7 @@ const HashikenGame = () => {
       bgmCtxRef.current = null;
     }
 
-    if (!isBgmPlaying) {
+    if (nextMode !== 0) {
       // 2. 建立全新音軌
       bgmCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       const ctx = bgmCtxRef.current;
@@ -94,37 +97,89 @@ const HashikenGame = () => {
       const schedule = () => {
         if (ctx.state === 'closed') return;
         while (nextNoteTime < ctx.currentTime + 0.2) {
-          if (step % 8 === 0 || step % 8 === 3 || step % 8 === 6) {
+          if (nextMode === 1) {
+            // Track 1: 原版和風節奏
+            if (step % 8 === 0 || step % 8 === 3 || step % 8 === 6) {
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.connect(gain); gain.connect(ctx.destination);
+              osc.frequency.setValueAtTime(step % 8 === 0 ? 80 : 120, nextNoteTime);
+              osc.frequency.exponentialRampToValueAtTime(30, nextNoteTime + 0.2);
+              gain.gain.setValueAtTime(0.25, nextNoteTime);
+              gain.gain.exponentialRampToValueAtTime(0.01, nextNoteTime + 0.2);
+              osc.start(nextNoteTime); osc.stop(nextNoteTime + 0.2);
+            }
+            const melody = [329.63, 349.23, 440, 493.88, 523.25, 440, 349.23, 329.63];
+            if (step % 2 === 0) {
+              const noteFreq = melody[(step / 2) % melody.length];
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.type = 'triangle';
+              osc.connect(gain); gain.connect(ctx.destination);
+              osc.frequency.setValueAtTime(noteFreq, nextNoteTime);
+              gain.gain.setValueAtTime(0.08, nextNoteTime);
+              gain.gain.exponentialRampToValueAtTime(0.01, nextNoteTime + 0.3);
+              osc.start(nextNoteTime); osc.stop(nextNoteTime + 0.3);
+            }
+            nextNoteTime += 0.16;
+          } else if (nextMode === 2) {
+            // Track 2: 三味線/緊張感 (較慢)
+            if (step % 16 === 0) {
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.connect(gain); gain.connect(ctx.destination);
+              osc.frequency.setValueAtTime(60, nextNoteTime);
+              osc.frequency.exponentialRampToValueAtTime(20, nextNoteTime + 0.5);
+              gain.gain.setValueAtTime(0.4, nextNoteTime);
+              gain.gain.exponentialRampToValueAtTime(0.01, nextNoteTime + 0.5);
+              osc.start(nextNoteTime); osc.stop(nextNoteTime + 0.5);
+            }
+            const melody2 = [440, 0, 493.88, 0, 523.25, 0, 440, 659.25];
+            if (step % 2 === 0) {
+              const noteFreq = melody2[(step / 2) % melody2.length];
+              if (noteFreq > 0) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'square';
+                osc.connect(gain); gain.connect(ctx.destination);
+                osc.frequency.setValueAtTime(noteFreq, nextNoteTime);
+                gain.gain.setValueAtTime(0.04, nextNoteTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, nextNoteTime + 0.15);
+                osc.start(nextNoteTime); osc.stop(nextNoteTime + 0.15);
+              }
+            }
+            nextNoteTime += 0.2;
+          } else if (nextMode === 3) {
+            // Track 3: 祭典/輕快 (較快)
+            if (step % 4 === 0 || step % 4 === 2) {
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.type = 'triangle';
+              osc.connect(gain); gain.connect(ctx.destination);
+              osc.frequency.setValueAtTime(200, nextNoteTime);
+              osc.frequency.exponentialRampToValueAtTime(100, nextNoteTime + 0.1);
+              gain.gain.setValueAtTime(0.1, nextNoteTime);
+              gain.gain.exponentialRampToValueAtTime(0.01, nextNoteTime + 0.1);
+              osc.start(nextNoteTime); osc.stop(nextNoteTime + 0.1);
+            }
+            const melody3 = [523.25, 587.33, 659.25, 587.33, 523.25, 659.25, 783.99, 659.25];
+            const noteFreq = melody3[step % melody3.length];
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
-            osc.connect(gain); gain.connect(ctx.destination);
-            osc.frequency.setValueAtTime(step % 8 === 0 ? 80 : 120, nextNoteTime);
-            osc.frequency.exponentialRampToValueAtTime(30, nextNoteTime + 0.2);
-            gain.gain.setValueAtTime(0.25, nextNoteTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, nextNoteTime + 0.2);
-            osc.start(nextNoteTime); osc.stop(nextNoteTime + 0.2);
-          }
-          const melody = [329.63, 349.23, 440, 493.88, 523.25, 440, 349.23, 329.63];
-          if (step % 2 === 0) {
-            const noteFreq = melody[(step / 2) % melody.length];
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = 'triangle';
+            osc.type = 'sine';
             osc.connect(gain); gain.connect(ctx.destination);
             osc.frequency.setValueAtTime(noteFreq, nextNoteTime);
-            gain.gain.setValueAtTime(0.08, nextNoteTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, nextNoteTime + 0.3);
-            osc.start(nextNoteTime); osc.stop(nextNoteTime + 0.3);
+            gain.gain.setValueAtTime(0.06, nextNoteTime);
+            gain.gain.linearRampToValueAtTime(0.01, nextNoteTime + 0.12);
+            osc.start(nextNoteTime); osc.stop(nextNoteTime + 0.12);
+            
+            nextNoteTime += 0.12;
           }
           step++;
-          nextNoteTime += 0.16;
         }
       };
       
       bgmIntervalRef.current = setInterval(schedule, 50);
-      setIsBgmPlaying(true);
-    } else {
-      setIsBgmPlaying(false);
     }
   };
 
@@ -254,7 +309,7 @@ const HashikenGame = () => {
   // 入座啟動：解碼語音、啟動音樂
   const handleBoot = async () => {
     initAudioCtx();
-    if (!isBgmPlaying) toggleBGM();
+    if (bgmMode === 0) cycleBGM(); // Start with track 1
     
     if (rawVoiceBuffersRef.current) {
       decodeVoices();
@@ -494,8 +549,8 @@ const HashikenGame = () => {
         {/* Header 控制列 */}
         <div className="bg-[#1c1b1a] p-3 flex justify-between items-center shadow-lg relative z-20 border-b-2 border-[#8c7e63] shrink-0">
           <div className="flex gap-2">
-            <button onClick={toggleBGM} className={`text-xs font-bold py-1.5 px-3 rounded-lg shadow-inner transition-colors flex items-center gap-1 ${isBgmPlaying ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-stone-700 text-stone-300 hover:bg-stone-600'}`}>
-              🎵 BGM
+            <button onClick={cycleBGM} className={`text-xs font-bold py-1.5 px-3 rounded-lg shadow-inner transition-colors flex items-center gap-1 ${bgmMode !== 0 ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-stone-700 text-stone-300 hover:bg-stone-600'}`}>
+              {bgmMode === 0 ? '🔇 BGM 關' : `🎵 BGM ${bgmMode}`}
             </button>
             <button onClick={() => setShowRules(true)} className="text-xs font-bold py-1.5 px-3 rounded-lg bg-stone-700 text-stone-300 hover:bg-stone-600 shadow-inner transition-colors flex items-center gap-1">
               📖 說明
