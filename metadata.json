@@ -1,0 +1,5 @@
+{
+  "name": "Hashiken Game",
+  "description": "A web-based simulation of the traditional Kochi drinking game, Hashiken (土佐箸拳).",
+  "requestFramePermissions": []
+}
