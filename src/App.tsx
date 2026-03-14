@@ -19,6 +19,7 @@ const HashikenGame = () => {
   const [soundEnabled, setSoundEnabled] = useState(true); 
   const [aiLoadedStatus, setAiLoadedStatus] = useState('loading'); // 'loading', 'ready', 'error'
   const [isShaking, setIsShaking] = useState(false);
+  const [showRules, setShowRules] = useState(false);
 
   // Refs: 分離 BGM 與 SFX/Voice 引擎，確保互不干擾且能強制摧毀
   const bgmCtxRef = useRef<AudioContext | null>(null);
@@ -492,11 +493,16 @@ const HashikenGame = () => {
         
         {/* Header 控制列 */}
         <div className="bg-[#1c1b1a] p-3 flex justify-between items-center shadow-lg relative z-20 border-b-2 border-[#8c7e63] shrink-0">
-          <button onClick={toggleBGM} className={`text-xs font-bold py-1.5 px-3 rounded-lg shadow-inner transition-colors flex items-center gap-1 ${isBgmPlaying ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-stone-700 text-stone-300 hover:bg-stone-600'}`}>
-            🎵 BGM
-          </button>
+          <div className="flex gap-2">
+            <button onClick={toggleBGM} className={`text-xs font-bold py-1.5 px-3 rounded-lg shadow-inner transition-colors flex items-center gap-1 ${isBgmPlaying ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-stone-700 text-stone-300 hover:bg-stone-600'}`}>
+              🎵 BGM
+            </button>
+            <button onClick={() => setShowRules(true)} className="text-xs font-bold py-1.5 px-3 rounded-lg bg-stone-700 text-stone-300 hover:bg-stone-600 shadow-inner transition-colors flex items-center gap-1">
+              📖 說明
+            </button>
+          </div>
           
-          <h1 className="text-lg font-black tracking-widest text-amber-500 mx-2">土佐箸拳</h1>
+          <h1 className="text-lg font-black tracking-widest text-amber-500 mx-2 absolute left-1/2 transform -translate-x-1/2">土佐箸拳</h1>
           
           <button onClick={restartGame} className="text-xs font-bold py-1.5 px-3 rounded-lg bg-[#8b2323] hover:bg-[#a52a2a] text-white shadow-inner transition-colors flex items-center gap-1">
             🔄 重來
@@ -656,10 +662,80 @@ const HashikenGame = () => {
             </div>
           )}
           
+          {showRules && (
+            <div className="absolute inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-fade-in">
+              <div className="bg-[#f8f0d8] w-full h-[85%] max-h-[700px] rounded-2xl border-4 border-[#8c7e63] flex flex-col shadow-2xl relative">
+                <div className="bg-[#1c1b1a] text-amber-500 p-3 flex justify-between items-center border-b-4 border-[#8c7e63] shrink-0 rounded-t-xl">
+                  <h2 className="font-black text-lg tracking-widest">📖 遊戲說明</h2>
+                  <button onClick={() => setShowRules(false)} className="text-3xl leading-none hover:text-red-400 transition-colors">&times;</button>
+                </div>
+                <div className="p-5 overflow-y-auto space-y-6 text-stone-800 text-sm leading-relaxed custom-scrollbar">
+                  
+                  <section>
+                    <h3 className="text-lg font-black text-[#8b2323] border-b-2 border-[#8b2323]/30 pb-1 mb-2">關於土佐的「箸拳」</h3>
+                    <p>所謂「箸拳」，是如字面所示，以筷子進行的拳戲，是一種在宴席座席上進行的娛樂遊戲。</p>
+                    <p className="mt-1">兩人相對，各自將三支紅筷放在面前，透過感覺與節奏猜測筷子的合計數量（自己與對手持有的數量）。這項競技帶有節奏感與音樂性的拍子來進行。</p>
+                    <p className="mt-1">在土佐地區，這種遊戲被稱為「打箸拳」。</p>
+                  </section>
+
+                  <section>
+                    <h3 className="text-lg font-black text-[#8b2323] border-b-2 border-[#8b2323]/30 pb-1 mb-2">箸拳的規則</h3>
+                    <ol className="list-decimal pl-5 space-y-2 font-medium">
+                      <li>兩人面對面，各持三支紅筷（朱漆短竹筷）。先以猜拳決定先手。（第一回合雙方必須出「布」。）</li>
+                      <li><strong>後手</strong>（猜拳輸的人）從自己持有的三支筷子中，握住任意數量（也可以是0支），並將手伸到前面但不讓對手看到。同時喊「イラッシャイ！（來吧）」。</li>
+                      <li><strong>先手</strong>猜測對手持有的筷子數量，自己握筷並讓<strong>總數成為3支</strong>，然後喊「三本（3支）」並將手伸出。（先手出手時必須是3支，不能說其他數字。）</li>
+                      <li><strong>後手</strong>依照雙方合計的筷子數量，回應「1本」或「5本」。（此時不能說偶數。）</li>
+                      <li>如此交互進行，採<strong>三戰兩勝制（先勝兩局者勝）</strong>。輸的人要喝放在中央的酒杯中的酒。</li>
+                    </ol>
+                  </section>
+
+                  <section>
+                    <h3 className="text-lg font-black text-[#8b2323] border-b-2 border-[#8b2323]/30 pb-1 mb-2">圖示說明</h3>
+                    <div className="bg-white p-3 rounded-xl border-2 border-stone-300 text-xs shadow-sm space-y-3">
+                      <div>
+                        <p className="font-black text-[#c75e14] text-sm mb-1">【先手】目標：總和 3</p>
+                        <p className="font-bold text-stone-600">持有的筷子數量：3 → 2 → 1 → 0</p>
+                        <p className="text-stone-500">（出手時固定為「3支」，不能說3以外的數字）</p>
+                      </div>
+                      <div className="w-full h-px bg-stone-200"></div>
+                      <div>
+                        <p className="font-black text-[#1b5e9c] text-sm mb-1">【後手】目標：總和 1 或 5</p>
+                        <p className="font-bold text-stone-600">持有的筷子數量：0 → 1 → 2 → 3</p>
+                        <p className="text-stone-500">（後手需回答「1支」或「5支」）</p>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section>
+                    <h3 className="text-lg font-black text-[#8b2323] border-b-2 border-[#8b2323]/30 pb-1 mb-2">土佐箸拳的由來</h3>
+                    <p>此遊戲何時在土佐開始已無法確定，但大約是在幕末時期（嘉永2年，1849年）。據說當時在宿毛的船員之間，原本用吃飯的筷子來進行猜拳式遊戲，後來輸的人改為喝酒作為懲罰。</p>
+                    <p className="mt-2">根據明治34年4月5日發行的《釀造沿革史》記載：同年1月21日起，21名喜愛箸拳的人每月聚會一次，舉辦箸拳比賽並彼此切磋技藝。</p>
+                    <p className="mt-2">在明治37、38年的日俄戰爭時期，土佐的徵兵集會成為其興盛的契機，使這項活動在縣內廣泛流傳。現在它已成為土佐獨特的座席競技，在全國也逐漸為人所知，並被視為具有無形文化資產價值的存在。</p>
+                  </section>
+
+                  <section>
+                    <h3 className="text-lg font-black text-[#8b2323] border-b-2 border-[#8b2323]/30 pb-1 mb-2">箸拳大會與段位授與</h3>
+                    <p>高知縣酒造組合每年10月1日，與高知新聞社共同主辦<strong>「土佐箸拳全日本選手權大會」</strong>。</p>
+                    <p className="mt-2">此大會約有400～450名選手參加，在16個土佐酒藏之間展開激烈比賽。團體賽為三人一隊（先鋒、中堅、大將），個人賽則以淘汰賽方式進行。優勝者將獲得獎狀與豐富獎品，並授予段位稱號。</p>
+                    <p className="mt-2">目前（平成18年）段位從初段至十段，取得段位的人數已達約2000人。</p>
+                    <div className="mt-3 bg-stone-200 p-3 rounded-lg text-xs font-medium border border-stone-300">
+                      <p className="mb-1"><strong className="text-stone-800">比賽會場：</strong>高知市技研通2丁目 高知縣民體育館 (任何人都可以參加，觀賽免費)</p>
+                      <p><strong className="text-stone-800">洽詢與報名：</strong>高知縣酒造組合 箸拳大會係 (TEL：088-823-3558)</p>
+                    </div>
+                  </section>
+
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
       
       <style dangerouslySetInnerHTML={{__html: `
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #8c7e63; border-radius: 10px; }
         .animate-fade-in { animation: fadeIn 0.3s ease-out; }
         .animate-slide-in { animation: slideIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
         .animate-bounce-in { animation: bounceIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
