@@ -547,21 +547,25 @@ const HashikenGame = () => {
       <div className={`w-full max-w-md bg-stone-100 rounded-3xl shadow-2xl border-4 border-[#8c7e63] relative flex flex-col h-[95vh] max-h-[850px] overflow-hidden ${isShaking ? 'animate-shake' : ''}`}>
         
         {/* Header 控制列 */}
-        <div className="bg-[#1c1b1a] p-3 flex justify-between items-center shadow-lg relative z-20 border-b-2 border-[#8c7e63] shrink-0">
-          <div className="flex gap-2">
-            <button onClick={cycleBGM} className={`text-xs font-bold py-1.5 px-3 rounded-lg shadow-inner transition-colors flex items-center gap-1 ${bgmMode !== 0 ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-stone-700 text-stone-300 hover:bg-stone-600'}`}>
-              {bgmMode === 0 ? '🔇 BGM 關' : `🎵 BGM ${bgmMode}`}
-            </button>
+        <div className="bg-[#1c1b1a] px-3 py-2 flex justify-between items-start shadow-lg relative z-20 border-b-2 border-[#8c7e63] shrink-0 min-h-[64px]">
+          <div className="flex gap-2 mt-1">
             <button onClick={() => setShowRules(true)} className="text-xs font-bold py-1.5 px-3 rounded-lg bg-stone-700 text-stone-300 hover:bg-stone-600 shadow-inner transition-colors flex items-center gap-1">
               📖 說明
             </button>
           </div>
           
-          <h1 className="text-lg font-black tracking-widest text-amber-500 mx-2 absolute left-1/2 transform -translate-x-1/2">土佐箸拳</h1>
+          <div className="absolute left-1/2 transform -translate-x-1/2 flex flex-col items-center justify-center top-1/2 -translate-y-1/2 w-32">
+            <h1 className="text-2xl font-black tracking-widest text-amber-500 drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">土佐箸拳</h1>
+            <button onClick={cycleBGM} className={`mt-0.5 text-[10px] font-bold py-0.5 px-2 rounded-full shadow-inner transition-colors flex items-center gap-1 ${bgmMode !== 0 ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-stone-700 text-stone-300 hover:bg-stone-600'}`}>
+              {bgmMode === 0 ? '🔇 BGM 關' : `🎵 BGM ${bgmMode}`}
+            </button>
+          </div>
           
-          <button onClick={restartGame} className="text-xs font-bold py-1.5 px-3 rounded-lg bg-[#8b2323] hover:bg-[#a52a2a] text-white shadow-inner transition-colors flex items-center gap-1">
-            🔄 重來
-          </button>
+          <div className="mt-1">
+            <button onClick={restartGame} className="text-xs font-bold py-1.5 px-3 rounded-lg bg-[#8b2323] hover:bg-[#a52a2a] text-white shadow-inner transition-colors flex items-center gap-1">
+              🔄 重來
+            </button>
+          </div>
         </div>
 
         {/* 主要內容區 */}
