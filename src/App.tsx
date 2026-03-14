@@ -20,6 +20,7 @@ const HashikenGame = () => {
   const [aiLoadedStatus, setAiLoadedStatus] = useState('loading'); // 'loading', 'ready', 'error'
   const [isShaking, setIsShaking] = useState(false);
   const [showRules, setShowRules] = useState(false);
+  const [rpsResult, setRpsResult] = useState<{player: string, cpu: string, winner: string} | null>(null);
 
   // Refs: 分離 BGM 與 SFX/Voice 引擎，確保互不干擾且能強制摧毀
   const bgmCtxRef = useRef<AudioContext | null>(null);
@@ -279,8 +280,12 @@ const HashikenGame = () => {
         { key: 'round_draw', text: 'もう一回' }
       ];
 
-      // 平行加速下載 6 句語音
-      const results = await Promise.all(phrases.map(async p => ({ key: p.key, buf: await fetchVoice(p) })));
+      // 依序下載語音，避免平行請求導致 API 連線超時 (429 Too Many Requests)
+      const results = [];
+      for (const p of phrases) {
+        if (!isMounted) return;
+        results.push({ key: p.key, buf: await fetchVoice(p) });
+      }
       
       if (!isMounted) return;
       
@@ -352,12 +357,39 @@ const HashikenGame = () => {
     return Promise.race([playPromise, timeoutPromise]);
   };
 
-  const handleRPS = () => {
+  const handleRPS = (playerHand: string) => {
     playTaiko(true);
-    const isPlayerSente = Math.random() > 0.5; 
-    setPlayerRole(isPlayerSente ? 'sente' : 'gote');
-    setCpuRole(isPlayerSente ? 'gote' : 'sente');
-    setGameState('playing');
+    const hands = ['rock', 'scissors', 'paper'];
+    const cpuHand = hands[Math.floor(Math.random() * 3)];
+    
+    let winner = 'draw';
+    if (playerHand === cpuHand) {
+      winner = 'draw';
+    } else if (
+      (playerHand === 'rock' && cpuHand === 'scissors') ||
+      (playerHand === 'scissors' && cpuHand === 'paper') ||
+      (playerHand === 'paper' && cpuHand === 'rock')
+    ) {
+      winner = 'player';
+    } else {
+      winner = 'cpu';
+    }
+    
+    setRpsResult({ player: playerHand, cpu: cpuHand, winner });
+    setGameState('rps_result');
+    
+    setTimeout(() => {
+      if (winner === 'draw') {
+        setGameState('rps');
+        setRpsResult(null);
+      } else {
+        const isPlayerSente = winner === 'player';
+        setPlayerRole(isPlayerSente ? 'sente' : 'gote');
+        setCpuRole(isPlayerSente ? 'gote' : 'sente');
+        setGameState('playing');
+        setRpsResult(null);
+      }
+    }, 2000);
   };
 
   const getGoteShout = (choice: number | null) => {
@@ -486,14 +518,27 @@ const HashikenGame = () => {
   const restartGame = () => { setGameState('intro'); setPlayerWins(0); setCpuWins(0); setPlayerChoice(null); setCpuChoice(null); skipRef.current = false; };
 
   const renderChopsticks = (count: number | null, direction = 'up', isHidden = false) => {
-    if (isHidden) return <div className="text-4xl py-1 opacity-60 animate-pulse">✊</div>;
+    if (isHidden) {
+      return (
+        <div className="relative flex justify-center items-center h-24 w-24">
+          <div className={`text-6xl absolute z-10 drop-shadow-lg ${direction === 'down' ? 'rotate-180' : ''}`}>
+            🤚
+          </div>
+          <div className="absolute w-16 h-16 bg-black/10 rounded-full animate-ping opacity-50"></div>
+        </div>
+      );
+    }
     const sticks = [];
     for (let i = 0; i < (count || 0); i++) {
-      sticks.push(<div key={i} className={`w-3 h-20 bg-gradient-to-b from-red-600 to-red-900 rounded-full mx-1 shadow-lg border-2 border-red-900 transform ${direction === 'down' ? 'rotate-[170deg]' : 'rotate-6'}`}></div>);
+      sticks.push(<div key={i} className={`w-3 h-20 bg-gradient-to-b from-red-600 to-red-900 rounded-full mx-1 shadow-lg border-2 border-red-900 transform ${direction === 'down' ? 'rotate-[170deg]' : 'rotate-6'} relative z-0`}></div>);
     }
     return (
-      <div className="flex h-24 items-center justify-center min-w-[80px] bg-[#f8f0d8] rounded-xl p-2 border-2 border-dashed border-amber-400 shadow-inner">
+      <div className="flex h-24 items-center justify-center min-w-[80px] bg-[#f8f0d8] rounded-xl p-2 border-2 border-dashed border-amber-400 shadow-inner relative">
         {count === 0 ? <span className="text-stone-400 font-black text-lg">空手 (0)</span> : sticks}
+        {/* 顯示結果時，手掌半透明疊加在前面，營造從手掌後方露出的感覺 */}
+        <div className={`text-6xl absolute z-10 opacity-20 pointer-events-none ${direction === 'down' ? 'rotate-180 -top-2' : '-bottom-2'}`}>
+          🤚
+        </div>
       </div>
     );
   };
@@ -547,25 +592,23 @@ const HashikenGame = () => {
       <div className={`w-full max-w-md bg-stone-100 rounded-3xl shadow-2xl border-4 border-[#8c7e63] relative flex flex-col h-[95vh] max-h-[850px] overflow-hidden ${isShaking ? 'animate-shake' : ''}`}>
         
         {/* Header 控制列 */}
-        <div className="bg-[#1c1b1a] px-3 py-2 flex justify-between items-start shadow-lg relative z-20 border-b-2 border-[#8c7e63] shrink-0 min-h-[64px]">
-          <div className="flex gap-2 mt-1">
-            <button onClick={() => setShowRules(true)} className="text-xs font-bold py-1.5 px-3 rounded-lg bg-stone-700 text-stone-300 hover:bg-stone-600 shadow-inner transition-colors flex items-center gap-1">
-              📖 說明
+        <div className="bg-[#1c1b1a] px-4 py-3 flex justify-between items-center shadow-lg relative z-20 border-b-2 border-[#8c7e63] shrink-0 min-h-[64px]">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setShowRules(true)} className="text-2xl opacity-80 hover:opacity-100 hover:scale-110 transition-all" title="遊戲說明">
+              📖
+            </button>
+            <button onClick={cycleBGM} className={`text-xs font-bold py-1 px-2.5 rounded-md shadow-inner transition-colors flex items-center gap-1 ${bgmMode !== 0 ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-stone-700 text-stone-300 hover:bg-stone-600'}`}>
+              {bgmMode === 0 ? '🔇 關' : `🎵 曲${bgmMode}`}
             </button>
           </div>
           
-          <div className="absolute left-1/2 transform -translate-x-1/2 flex flex-col items-center justify-center top-1/2 -translate-y-1/2 w-32">
-            <h1 className="text-2xl font-black tracking-widest text-amber-500 drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">土佐箸拳</h1>
-            <button onClick={cycleBGM} className={`mt-0.5 text-[10px] font-bold py-0.5 px-2 rounded-full shadow-inner transition-colors flex items-center gap-1 ${bgmMode !== 0 ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-stone-700 text-stone-300 hover:bg-stone-600'}`}>
-              {bgmMode === 0 ? '🔇 BGM 關' : `🎵 BGM ${bgmMode}`}
-            </button>
-          </div>
+          <h1 className="text-2xl font-black tracking-widest text-amber-500 drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] absolute left-1/2 transform -translate-x-1/2">
+            土佐箸拳
+          </h1>
           
-          <div className="mt-1">
-            <button onClick={restartGame} className="text-xs font-bold py-1.5 px-3 rounded-lg bg-[#8b2323] hover:bg-[#a52a2a] text-white shadow-inner transition-colors flex items-center gap-1">
-              🔄 重來
-            </button>
-          </div>
+          <button onClick={restartGame} className="text-2xl opacity-80 hover:opacity-100 hover:scale-110 transition-all" title="重新開始">
+            🔄
+          </button>
         </div>
 
         {/* 主要內容區 */}
@@ -594,19 +637,43 @@ const HashikenGame = () => {
             </div>
           )}
 
-          {gameState === 'rps' && (
+          {(gameState === 'rps' || gameState === 'rps_result') && (
             <div className="text-center space-y-8 animate-fade-in py-12 my-auto">
-              <h2 className="text-2xl font-black text-stone-800">猜拳決定先後手</h2>
-              <div className="flex justify-center gap-4">
-                {['rock', 'scissors', 'paper'].map((hand) => {
-                  const emojis: Record<string, string> = {'rock': '✊', 'scissors': '✌️', 'paper': '🖐️'};
-                  return (
-                    <button key={hand} onClick={handleRPS} className="w-20 h-20 bg-white border-4 border-stone-400 rounded-full shadow-lg hover:border-red-600 text-4xl active:scale-90 transition-all flex justify-center items-center">
-                      {emojis[hand]}
-                    </button>
-                  )
-                })}
-              </div>
+              <h2 className="text-2xl font-black text-stone-800">
+                {gameState === 'rps' ? '猜拳決定先後手' : (
+                  rpsResult?.winner === 'draw' ? '平手！再一次' :
+                  rpsResult?.winner === 'player' ? '你贏了！擔任先手' : '你輸了！擔任後手'
+                )}
+              </h2>
+              
+              {gameState === 'rps' ? (
+                <div className="flex justify-center gap-4">
+                  {['rock', 'scissors', 'paper'].map((hand) => {
+                    const emojis: Record<string, string> = {'rock': '✊', 'scissors': '✌️', 'paper': '🖐️'};
+                    return (
+                      <button key={hand} onClick={() => handleRPS(hand)} className="w-20 h-20 bg-white border-4 border-stone-400 rounded-full shadow-lg hover:border-red-600 text-4xl active:scale-90 transition-all flex justify-center items-center">
+                        {emojis[hand]}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="flex justify-center items-center gap-8">
+                  <div className="flex flex-col items-center animate-slide-in">
+                    <span className="text-sm font-bold text-stone-500 mb-2">你</span>
+                    <div className={`w-20 h-20 bg-white border-4 ${rpsResult?.winner === 'player' ? 'border-green-500' : 'border-stone-400'} rounded-full shadow-lg text-4xl flex justify-center items-center`}>
+                      {{'rock': '✊', 'scissors': '✌️', 'paper': '🖐️'}[rpsResult?.player || 'rock']}
+                    </div>
+                  </div>
+                  <div className="text-3xl font-black text-stone-400">VS</div>
+                  <div className="flex flex-col items-center animate-slide-in" style={{animationDelay: '0.2s'}}>
+                    <span className="text-sm font-bold text-stone-500 mb-2">對手</span>
+                    <div className={`w-20 h-20 bg-white border-4 ${rpsResult?.winner === 'cpu' ? 'border-red-500' : 'border-stone-400'} rounded-full shadow-lg text-4xl flex justify-center items-center`}>
+                      {{'rock': '✊', 'scissors': '✌️', 'paper': '🖐️'}[rpsResult?.cpu || 'rock']}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
