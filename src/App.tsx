@@ -1,6 +1,29 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI, Modality } from '@google/genai';
 
+const HandBack = ({ direction, isGhost = false }: { direction: 'up' | 'down', isGhost?: boolean }) => {
+  const isOpponent = direction === 'down';
+  return (
+    <div className={`relative w-14 h-20 bg-[#e8b482] rounded-t-2xl rounded-b-lg border-2 border-[#c28b55] flex justify-center ${isOpponent ? 'rotate-180' : ''} ${isGhost ? 'opacity-40' : 'shadow-lg'}`}>
+      {/* 拇指 */}
+      <div className="absolute top-6 -right-3 w-4 h-9 bg-[#e8b482] rounded-r-full border-r-2 border-y-2 border-[#c28b55]"></div>
+      {/* 指縫線 */}
+      <div className="w-full h-8 flex justify-evenly px-2 pt-2 opacity-40">
+        <div className="w-[1.5px] h-full bg-[#8a5a2b] rounded-full"></div>
+        <div className="w-[1.5px] h-full bg-[#8a5a2b] rounded-full"></div>
+        <div className="w-[1.5px] h-full bg-[#8a5a2b] rounded-full"></div>
+      </div>
+      {/* 手背的關節暗示 */}
+      <div className="absolute top-10 w-full flex justify-evenly px-2 opacity-30">
+        <div className="w-1.5 h-1.5 rounded-full bg-[#8a5a2b]"></div>
+        <div className="w-1.5 h-1.5 rounded-full bg-[#8a5a2b]"></div>
+        <div className="w-1.5 h-1.5 rounded-full bg-[#8a5a2b]"></div>
+        <div className="w-1.5 h-1.5 rounded-full bg-[#8a5a2b]"></div>
+      </div>
+    </div>
+  );
+};
+
 const HashikenGame = () => {
   // 遊戲狀態加入 'boot' 作為音訊授權與載入首頁
   const [gameState, setGameState] = useState('boot'); 
@@ -521,8 +544,8 @@ const HashikenGame = () => {
     if (isHidden) {
       return (
         <div className="relative flex justify-center items-center h-24 w-24">
-          <div className={`text-6xl absolute z-10 drop-shadow-lg ${direction === 'down' ? 'rotate-180' : ''}`}>
-            ✋
+          <div className="absolute z-10 drop-shadow-lg">
+            <HandBack direction={direction as 'up' | 'down'} />
           </div>
           <div className="absolute w-16 h-16 bg-black/10 rounded-full animate-ping opacity-50"></div>
         </div>
@@ -535,9 +558,9 @@ const HashikenGame = () => {
     return (
       <div className="flex h-24 items-center justify-center min-w-[80px] bg-[#f8f0d8] rounded-xl p-2 border-2 border-dashed border-amber-400 shadow-inner relative">
         {count === 0 ? <span className="text-stone-400 font-black text-lg">空手 (0)</span> : sticks}
-        {/* 顯示結果時，手掌半透明疊加在前面，營造從手掌後方露出的感覺 */}
-        <div className={`text-6xl absolute z-10 opacity-20 pointer-events-none ${direction === 'down' ? 'rotate-180 -top-2' : '-bottom-2'}`}>
-          ✋
+        {/* 顯示結果時，手背半透明疊加在前面，營造從手掌後方露出的感覺 */}
+        <div className={`absolute z-10 pointer-events-none ${direction === 'down' ? '-top-2' : '-bottom-2'}`}>
+          <HandBack direction={direction as 'up' | 'down'} isGhost={true} />
         </div>
       </div>
     );
