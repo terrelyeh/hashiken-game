@@ -217,7 +217,10 @@ const HashikenGame = () => {
         { key: 'ippon', text: 'いっぽん' },
         { key: 'gohon', text: 'ごほん' },
         { key: 'win', text: '俺の勝ちだ' },
-        { key: 'lose', text: '負けた' }
+        { key: 'lose', text: '負けた' },
+        { key: 'round_win', text: '勝負あり' },
+        { key: 'round_lose', text: 'やられた' },
+        { key: 'round_draw', text: 'もう一回' }
       ];
 
       // 平行加速下載 6 句語音
@@ -234,7 +237,7 @@ const HashikenGame = () => {
         }
       }
 
-      if (successCount === 6) {
+      if (successCount === 9) {
         rawVoiceBuffersRef.current = tempMap;
         setAiLoadedStatus('ready');
         // 若使用者已經等不及按了入座，直接觸發解碼
@@ -274,7 +277,10 @@ const HashikenGame = () => {
       } 
       else if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
-        const texts: Record<string, string> = { irasshai: 'いらっしゃい！', sanbon: 'さんぼん！', ippon: 'いっぽん！', gohon: 'ごほん！' };
+        const texts: Record<string, string> = { 
+          irasshai: 'いらっしゃい！', sanbon: 'さんぼん！', ippon: 'いっぽん！', gohon: 'ごほん！',
+          win: '俺の勝ちだ！', lose: '負けた！', round_win: '勝負あり！', round_lose: 'やられた！', round_draw: 'もう一回！'
+        };
         const utterance = new SpeechSynthesisUtterance(texts[phraseKey]);
         utterance.lang = 'ja-JP'; utterance.pitch = pitch; utterance.rate = 1.3;
         utterance.onend = () => resolve();
@@ -387,6 +393,14 @@ const HashikenGame = () => {
         setTimeout(() => setIsShaking(false), 300);
         if (roundResult === 'player') setPlayerWins(prev => prev + 1);
         else if (roundResult === 'cpu') setCpuWins(prev => prev + 1);
+
+        // 5. 回合結果語音
+        if (isCancelled) return;
+        if (!skipRef.current) {
+          if (roundResult === 'player') await playVoiceAsync('round_win', 1.0);
+          else if (roundResult === 'cpu') await playVoiceAsync('round_lose', 1.0);
+          else await playVoiceAsync('round_draw', 1.0);
+        }
       };
 
       runDialogueSequence();
@@ -484,9 +498,9 @@ const HashikenGame = () => {
           
           <h1 className="text-lg font-black tracking-widest text-amber-500 mx-2">土佐箸拳</h1>
           
-          <div className="text-xs font-bold py-1 px-2 rounded bg-stone-800 text-stone-400 flex items-center gap-1 border border-stone-700">
-            {aiLoadedStatus === 'ready' ? '🗣️ 真人語音' : '🤖 機器人音'}
-          </div>
+          <button onClick={restartGame} className="text-xs font-bold py-1.5 px-3 rounded-lg bg-[#8b2323] hover:bg-[#a52a2a] text-white shadow-inner transition-colors flex items-center gap-1">
+            🔄 重來
+          </button>
         </div>
 
         {/* 主要內容區 */}
@@ -535,8 +549,9 @@ const HashikenGame = () => {
             <div className="flex flex-col flex-1 justify-between animate-fade-in -mx-1 h-full gap-2">
               
               <div className={`p-3 rounded-2xl border-b-4 border-x-4 shadow-sm relative flex flex-col items-center shrink-0 ${cpuRole === 'sente' ? 'bg-[#ffedb3] border-[#d1a624]' : 'bg-[#d6eaff] border-[#5591d1]'}`}>
-                <div className={`absolute -top-3 left-1/2 transform -translate-x-1/2 text-white px-3 py-0.5 rounded-full text-xs font-black shadow z-10 ${cpuRole === 'sente' ? 'bg-[#c75e14]' : 'bg-[#1b5e9c]'}`}>
-                  對手 ({cpuRole === 'sente' ? '先手' : '後手'}) 【勝: {cpuWins}】
+                <div className={`absolute -top-4 left-1/2 transform -translate-x-1/2 text-white px-5 py-1 rounded-full text-sm font-black shadow-lg border-2 border-white z-20 flex items-center gap-2 whitespace-nowrap ${cpuRole === 'sente' ? 'bg-[#c75e14]' : 'bg-[#1b5e9c]'}`}>
+                  <span>👺 對手 ({cpuRole === 'sente' ? '先手' : '後手'})</span>
+                  <span className="bg-black/30 px-2 py-0.5 rounded-full text-xs">勝: {cpuWins}</span>
                 </div>
                 <div className="mt-3 mb-1">
                   {gameState === 'playing' ? renderChopsticks(0, 'down', true) : (dialogueStep >= 4 ? renderChopsticks(cpuChoice, 'down') : renderChopsticks(0, 'down', true))}
@@ -609,8 +624,8 @@ const HashikenGame = () => {
                   </div>
                 )}
 
-                <div className={`absolute -bottom-3 left-1/2 transform -translate-x-1/2 text-white px-4 py-0.5 rounded-full text-xs font-black shadow z-10 ${playerRole === 'sente' ? 'bg-[#c75e14]' : 'bg-[#1b5e9c]'}`}>
-                  你的座位
+                <div className={`absolute -bottom-4 left-1/2 transform -translate-x-1/2 text-white px-6 py-1 rounded-full text-sm font-black shadow-lg border-2 border-white z-20 flex items-center gap-2 whitespace-nowrap ${playerRole === 'sente' ? 'bg-[#c75e14]' : 'bg-[#1b5e9c]'}`}>
+                  <span>👤 你的座位 ({playerRole === 'sente' ? '先手' : '後手'})</span>
                 </div>
               </div>
 
