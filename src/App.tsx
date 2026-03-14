@@ -522,7 +522,7 @@ const HashikenGame = () => {
       return (
         <div className="relative flex justify-center items-center h-24 w-24">
           <div className={`text-6xl absolute z-10 drop-shadow-lg ${direction === 'down' ? 'rotate-180' : ''}`}>
-            🤚
+            ✋
           </div>
           <div className="absolute w-16 h-16 bg-black/10 rounded-full animate-ping opacity-50"></div>
         </div>
@@ -537,7 +537,7 @@ const HashikenGame = () => {
         {count === 0 ? <span className="text-stone-400 font-black text-lg">空手 (0)</span> : sticks}
         {/* 顯示結果時，手掌半透明疊加在前面，營造從手掌後方露出的感覺 */}
         <div className={`text-6xl absolute z-10 opacity-20 pointer-events-none ${direction === 'down' ? 'rotate-180 -top-2' : '-bottom-2'}`}>
-          🤚
+          ✋
         </div>
       </div>
     );
