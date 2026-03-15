@@ -1,5 +1,60 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI, Modality } from '@google/genai';
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from '@google/genai';
+
+declare global {
+  interface Window {
+    aistudio?: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
+  }
+}
+
+// --- IndexedDB Cache Helper ---
+const DB_NAME = 'HashikenAudioCache';
+const STORE_NAME = 'voices';
+
+const openDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(STORE_NAME)) {
+        request.result.createObjectStore(STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const saveToCache = async (key: string, buffer: ArrayBuffer) => {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).put(buffer, key);
+    return new Promise((resolve) => {
+      tx.oncomplete = resolve;
+    });
+  } catch (e) {
+    console.warn('IndexedDB save failed:', e);
+  }
+};
+
+const loadFromCache = async (key: string): Promise<ArrayBuffer | null> => {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const request = tx.objectStore(STORE_NAME).get(key);
+    return new Promise((resolve) => {
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => resolve(null);
+    });
+  } catch (e) {
+    console.warn('IndexedDB load failed:', e);
+    return null;
+  }
+};
+// ------------------------------
 
 const HandBack = ({ direction, isGhost = false }: { direction: 'up' | 'down', isGhost?: boolean }) => {
   const isOpponent = direction === 'down';
@@ -207,40 +262,80 @@ const HashikenGame = () => {
     }
   };
 
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [needsApiKey, setNeedsApiKey] = useState(false);
+
+  useEffect(() => {
+    const checkApiKey = async () => {
+      if (window.aistudio?.hasSelectedApiKey) {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        if (!hasKey) {
+          setNeedsApiKey(true);
+        } else {
+          setIsAuthReady(true);
+        }
+      } else {
+        // Fallback if not running in AI Studio environment
+        setIsAuthReady(true);
+      }
+    };
+    checkApiKey();
+  }, []);
+
+  const handleSelectKey = async () => {
+    if (window.aistudio?.openSelectKey) {
+      await window.aistudio.openSelectKey();
+      // Assume success as per guidelines to avoid race condition
+      setNeedsApiKey(false);
+      setIsAuthReady(true);
+    }
+  };
+
   // 平行背景下載 AI 真人語音 (加入重試機制與安全字眼修正)
   const fetchVoice = async (phrase: { key: string, text: string }) => {
-    const cached = localStorage.getItem(`hashiken_voice_${phrase.key}`);
-    if (cached) {
-      const binary = atob(cached);
-      const buffer = new ArrayBuffer(binary.length);
-      const view = new Uint8Array(buffer);
-      for (let i = 0; i < binary.length; i++) view[i] = binary.charCodeAt(i);
-      return buffer;
+    const cachedBuffer = await loadFromCache(`hashiken_voice_${phrase.key}`);
+    if (cachedBuffer) {
+      return cachedBuffer;
     }
 
-    const apiKey = process.env.GEMINI_API_KEY; 
+    // 優先使用使用者綁定的付費 API Key
+    // 支援 Vercel 常見的環境變數命名方式 (VITE_GEMINI_API_KEY, VITE_API_KEY, GEMINI_API_KEY, API_KEY)
+    const apiKey = 
+      import.meta.env.VITE_GEMINI_API_KEY || 
+      import.meta.env.VITE_API_KEY || 
+      (typeof process !== 'undefined' && process.env ? (process.env.API_KEY || process.env.GEMINI_API_KEY) : undefined);
+      
     if (!apiKey) {
-      console.error("Missing GEMINI_API_KEY");
+      console.error("Missing API Key. Please check your Vercel environment variables.");
       return null;
     }
     
     const ai = new GoogleGenAI({ apiKey });
 
-    const delays = [1000, 2000, 4000];
-    for (let attempt = 0; attempt <= 3; attempt++) {
+    const delays = [500, 1000]; // 縮短重試次數與時間，避免卡住
+    for (let attempt = 0; attempt <= 2; attempt++) {
       try {
         const response = await ai.models.generateContent({
           model: "gemini-2.5-flash-preview-tts",
           contents: [{ parts: [{ text: `Say very loudly, forcefully, and energetically in Japanese: ${phrase.text}!` }] }],
           config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Fenrir' } } }
+            responseModalities: ["AUDIO"],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Fenrir' } } },
+            safetySettings: [
+              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
+            ]
           }
         });
         
         const base64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (base64) {
-          const binary = atob(base64);
+        if (!base64) {
+          throw new Error("No audio data returned from API. Possible safety block or quota issue.");
+        }
+
+        const binary = atob(base64);
           const buffer = new ArrayBuffer(44 + binary.length);
           const view = new DataView(buffer);
           const writeString = (offset: number, str: string) => { for(let i=0; i<str.length; i++) view.setUint8(offset+i, str.charCodeAt(i)); };
@@ -252,23 +347,15 @@ const HashikenGame = () => {
           writeString(36, 'data'); view.setUint32(40, binary.length, true);
           for (let i=0; i<binary.length; i++) view.setUint8(44+i, binary.charCodeAt(i));
           
-          let binaryWav = '';
-          const bytes = new Uint8Array(buffer);
-          for (let i = 0; i < bytes.byteLength; i++) {
-              binaryWav += String.fromCharCode(bytes[i]);
-          }
-          try {
-            localStorage.setItem(`hashiken_voice_${phrase.key}`, btoa(binaryWav));
-          } catch (e) {
-            console.warn("localStorage full, skipping cache");
-          }
+          await saveToCache(`hashiken_voice_${phrase.key}`, buffer);
 
           return buffer;
-        }
-      } catch (e) {
+      } catch (e: any) {
         console.error("Voice fetch error:", e);
-        if (attempt === 3) return null;
-        await new Promise(r => setTimeout(r, delays[attempt]));
+        if (attempt === 2) return null;
+        // 如果是 429 Too Many Requests，等待更長的時間
+        const isRateLimit = e?.status === 429 || e?.message?.includes('429') || e?.message?.includes('quota');
+        await new Promise(r => setTimeout(r, isRateLimit ? 4000 : delays[attempt]));
       }
     }
     return null;
@@ -303,54 +390,59 @@ const HashikenGame = () => {
         { key: 'round_draw', text: 'もう一回' }
       ];
 
-      // 依序下載語音，避免平行請求導致 API 連線超時 (429 Too Many Requests)
-      const results = [];
-      for (const p of phrases) {
-        if (!isMounted) return;
-        results.push({ key: p.key, buf: await fetchVoice(p) });
-      }
-      
-      if (!isMounted) return;
-      
-      let successCount = 0;
-      const tempMap: Record<string, ArrayBuffer> = {};
-      for (const res of results) {
-        if (res.buf) {
-          tempMap[res.key] = res.buf;
-          successCount++;
-        }
+      if (!rawVoiceBuffersRef.current) {
+        rawVoiceBuffersRef.current = {};
       }
 
-      if (successCount === 9) {
-        rawVoiceBuffersRef.current = tempMap;
-        setAiLoadedStatus('ready');
-        // 若使用者已經等不及按了入座，直接觸發解碼
-        if (audioCtxRef.current) decodeVoices();
-      } else {
-        setAiLoadedStatus('error');
+      let loadedCount = 0;
+      // 依序下載語音，背景執行不卡 UI
+      for (const p of phrases) {
+        if (!isMounted) return;
+        const buf = await fetchVoice(p);
+        if (buf && isMounted) {
+          rawVoiceBuffersRef.current[p.key] = buf;
+          loadedCount++;
+        }
+        // 增加請求間隔，避免瞬間觸發 API 頻率限制 (429 Too Many Requests)
+        if (isMounted) await new Promise(r => setTimeout(r, 1500));
+      }
+      
+      if (isMounted) {
+        if (loadedCount === phrases.length) {
+          setAiLoadedStatus('ready');
+        } else {
+          setAiLoadedStatus('error');
+        }
       }
     };
     loadAllVoices();
     return () => { isMounted = false; };
   }, []);
 
-  // 入座啟動：解碼語音、啟動音樂
+  // 入座啟動：啟動音樂
   const handleBoot = async () => {
     initAudioCtx();
     if (bgmMode === 0) cycleBGM(); // Start with track 1
-    
-    if (rawVoiceBuffersRef.current) {
-      decodeVoices();
-    }
     setGameState('intro');
   };
 
   // 完美同步的底層語音播放器
-  const playVoiceAsync = (phraseKey: string, pitch = 1.0) => {
+  const playVoiceAsync = async (phraseKey: string, pitch = 1.0) => {
+    if (!soundEnabled || !audioCtxRef.current) return;
+    const ctx = audioCtxRef.current;
+    
+    // 嘗試即時解碼 (如果背景下載剛好完成，但還沒解碼)
+    if (!voiceBuffersRef.current[phraseKey] && rawVoiceBuffersRef.current?.[phraseKey]) {
+      try {
+        // 必須複製一份 buffer，因為 decodeAudioData 會清空原本的 ArrayBuffer
+        const buf = await ctx.decodeAudioData(rawVoiceBuffersRef.current[phraseKey].slice(0));
+        voiceBuffersRef.current[phraseKey] = buf;
+      } catch (e) {
+        console.error("Decode error on the fly:", e);
+      }
+    }
+
     const playPromise = new Promise<void>((resolve) => {
-      if (!soundEnabled || !audioCtxRef.current) return resolve();
-      const ctx = audioCtxRef.current;
-      
       if (voiceBuffersRef.current[phraseKey]) {
         const source = ctx.createBufferSource();
         source.buffer = voiceBuffersRef.current[phraseKey];
@@ -360,6 +452,7 @@ const HashikenGame = () => {
         source.start();
       } 
       else if ('speechSynthesis' in window) {
+        // Fallback: 如果語音還沒載好或失敗，直接用瀏覽器內建語音
         window.speechSynthesis.cancel();
         const texts: Record<string, string> = { 
           irasshai: 'いらっしゃい！', sanbon: 'さんぼん！', ippon: 'いっぽん！', gohon: 'ごほん！',
@@ -367,9 +460,22 @@ const HashikenGame = () => {
         };
         const utterance = new SpeechSynthesisUtterance(texts[phraseKey]);
         utterance.lang = 'ja-JP'; utterance.pitch = pitch; utterance.rate = 1.3;
-        utterance.onend = () => resolve();
-        utterance.onerror = () => resolve();
+        
+        // 確保 onend 觸發
+        let resolved = false;
+        const safeResolve = () => {
+          if (!resolved) {
+            resolved = true;
+            resolve();
+          }
+        };
+        
+        utterance.onend = safeResolve;
+        utterance.onerror = safeResolve;
         window.speechSynthesis.speak(utterance);
+        
+        // 備用計時器，防止語音 API 卡死
+        setTimeout(safeResolve, 2000);
       } else {
         resolve();
       }
@@ -377,7 +483,7 @@ const HashikenGame = () => {
 
     // 最大等待防呆機制 (4秒)
     const timeoutPromise = new Promise<void>(resolve => setTimeout(resolve, 4000));
-    return Promise.race([playPromise, timeoutPromise]);
+    await Promise.race([playPromise, timeoutPromise]);
   };
 
   const handleRPS = (playerHand: string) => {
@@ -579,6 +685,37 @@ const HashikenGame = () => {
   };
 
   // === 啟動授權頁 (解決瀏覽器音訊阻擋) ===
+  if (needsApiKey) {
+    return (
+      <div className="min-h-screen bg-stone-900 flex items-center justify-center p-4">
+        <div className="bg-stone-800 p-8 rounded-2xl shadow-2xl max-w-md w-full text-center border border-stone-700">
+          <h2 className="text-2xl font-bold text-white mb-4">需要付費版 API Key</h2>
+          <p className="text-stone-300 mb-6">
+            為了產生高品質的真人語音，請綁定您的付費版 Gemini API Key。
+            <br/><br/>
+            <span className="text-sm text-stone-400">
+              (請確保您的 Google Cloud 專案已啟用計費功能)
+            </span>
+          </p>
+          <button
+            onClick={handleSelectKey}
+            className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition-colors"
+          >
+            選擇 API Key
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-screen bg-stone-900 flex items-center justify-center">
+        <div className="text-white text-xl animate-pulse">正在驗證 API Key...</div>
+      </div>
+    );
+  }
+
   if (gameState === 'boot') {
     return (
       <div className="h-screen w-full bg-[#1c1b1a] flex flex-col items-center justify-center px-4 font-sans text-stone-200">
@@ -587,24 +724,17 @@ const HashikenGame = () => {
         <p className="text-stone-400 text-sm mb-12">高知無形文化財・酒宴對決模擬</p>
         
         <div className="mb-6 text-center min-h-[40px]">
-          {aiLoadedStatus === 'loading' && <p className="text-amber-400 animate-pulse font-bold text-sm">⏳ 正在連線召喚酒館大叔... (約需2秒)</p>}
-          {aiLoadedStatus === 'ready' && <p className="text-green-500 font-bold text-sm">✅ 大叔已就緒！</p>}
-          {aiLoadedStatus === 'error' && <p className="text-red-400 font-bold text-sm">⚠️ 連線超時，將採用機器人語音</p>}
+          {aiLoadedStatus === 'loading' && <p className="text-amber-400 animate-pulse font-bold text-sm">⏳ 語音包背景下載中... (可直接入座)</p>}
+          {aiLoadedStatus === 'ready' && <p className="text-green-500 font-bold text-sm">✅ 語音包已就緒！</p>}
+          {aiLoadedStatus === 'error' && <p className="text-red-400 font-bold text-sm">⚠️ 部分語音下載失敗，將自動採用機器人語音</p>}
         </div>
 
         <button 
           onClick={handleBoot}
-          disabled={aiLoadedStatus === 'loading'}
-          className={`font-black text-xl py-4 px-10 rounded-xl shadow-[0_6px_0_rgb(80,15,15)] transition-all flex items-center gap-3 ${aiLoadedStatus === 'loading' ? 'bg-stone-600 text-stone-400 cursor-wait shadow-[0_6px_0_rgb(60,60,60)]' : 'bg-[#8b2323] hover:bg-[#a52a2a] text-white active:translate-y-[6px] active:shadow-[0_0px_0_rgb(80,15,15)] animate-bounce-in'}`}
+          className="font-black text-xl py-4 px-10 rounded-xl shadow-[0_6px_0_rgb(80,15,15)] transition-all flex items-center gap-3 bg-[#8b2323] hover:bg-[#a52a2a] text-white active:translate-y-[6px] active:shadow-[0_0px_0_rgb(80,15,15)] animate-bounce-in"
         >
-          {aiLoadedStatus === 'loading' ? '等候語音載入中...' : '入座並開啟音效 🍶'}
+          入座並開啟音效 🍶
         </button>
-
-        {aiLoadedStatus === 'loading' && (
-          <button onClick={handleBoot} className="mt-6 text-stone-500 text-xs underline hover:text-stone-400 transition-colors">
-            不想等了，先以純音效開始
-          </button>
-        )}
       </div>
     );
   }
