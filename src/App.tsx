@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from '@google/genai';
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Modality } from '@google/genai';
 
 declare global {
   interface Window {
@@ -59,22 +59,8 @@ const loadFromCache = async (key: string): Promise<ArrayBuffer | null> => {
 const HandBack = ({ direction, isGhost = false }: { direction: 'up' | 'down', isGhost?: boolean }) => {
   const isOpponent = direction === 'down';
   return (
-    <div className={`relative w-14 h-20 bg-[#e8b482] rounded-t-2xl rounded-b-lg border-2 border-[#c28b55] flex justify-center ${isOpponent ? 'rotate-180' : ''} ${isGhost ? 'opacity-40' : 'shadow-lg'}`}>
-      {/* 拇指 */}
-      <div className="absolute top-6 -right-3 w-4 h-9 bg-[#e8b482] rounded-r-full border-r-2 border-y-2 border-[#c28b55]"></div>
-      {/* 指縫線 */}
-      <div className="w-full h-8 flex justify-evenly px-2 pt-2 opacity-40">
-        <div className="w-[1.5px] h-full bg-[#8a5a2b] rounded-full"></div>
-        <div className="w-[1.5px] h-full bg-[#8a5a2b] rounded-full"></div>
-        <div className="w-[1.5px] h-full bg-[#8a5a2b] rounded-full"></div>
-      </div>
-      {/* 手背的關節暗示 */}
-      <div className="absolute top-10 w-full flex justify-evenly px-2 opacity-30">
-        <div className="w-1.5 h-1.5 rounded-full bg-[#8a5a2b]"></div>
-        <div className="w-1.5 h-1.5 rounded-full bg-[#8a5a2b]"></div>
-        <div className="w-1.5 h-1.5 rounded-full bg-[#8a5a2b]"></div>
-        <div className="w-1.5 h-1.5 rounded-full bg-[#8a5a2b]"></div>
-      </div>
+    <div className={`text-[72px] leading-none select-none transform ${isOpponent ? 'rotate-180' : ''} ${isGhost ? 'opacity-40' : 'drop-shadow-lg'}`}>
+      ✊
     </div>
   );
 };
@@ -95,6 +81,7 @@ const HashikenGame = () => {
   
   const [bgmMode, setBgmMode] = useState(0); // 0: off, 1: track 1, 2: track 2, 3: track 3
   const [soundEnabled, setSoundEnabled] = useState(true); 
+  const [voiceGender, setVoiceGender] = useState<'male' | 'female'>('male');
   const [aiLoadedStatus, setAiLoadedStatus] = useState('loading'); // 'loading', 'ready', 'error'
   const [isShaking, setIsShaking] = useState(false);
   const [showRules, setShowRules] = useState(false);
@@ -107,6 +94,7 @@ const HashikenGame = () => {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rawVoiceBuffersRef = useRef<Record<string, ArrayBuffer> | null>(null);
   const voiceBuffersRef = useRef<Record<string, AudioBuffer>>({});
+  const quotaExceededRef = useRef(false);
   const playerHistoryRef = useRef<number[]>([]);
   const skipRef = useRef(false);
 
@@ -291,74 +279,27 @@ const HashikenGame = () => {
     }
   };
 
-  // 平行背景下載 AI 真人語音 (加入重試機制與安全字眼修正)
-  const fetchVoice = async (phrase: { key: string, text: string }) => {
-    const cachedBuffer = await loadFromCache(`hashiken_voice_${phrase.key}`);
-    if (cachedBuffer) {
-      return cachedBuffer;
-    }
+  // 背景下載靜態語音檔 (取代即時 API 呼叫，避免配額問題)
+  const fetchVoice = async (phrase: { key: string, text: string }, gender: 'male' | 'female') => {
+    try {
+      const cacheKey = `hashiken_voice_${gender}_${phrase.key}`;
+      const cachedBuffer = await loadFromCache(cacheKey);
+      if (cachedBuffer) {
+        return cachedBuffer;
+      }
 
-    // 優先使用使用者綁定的付費 API Key
-    // 支援 Vercel 常見的環境變數命名方式 (VITE_GEMINI_API_KEY, VITE_API_KEY, GEMINI_API_KEY, API_KEY)
-    const apiKey = 
-      import.meta.env.VITE_GEMINI_API_KEY || 
-      import.meta.env.VITE_API_KEY || 
-      (typeof process !== 'undefined' && process.env ? (process.env.API_KEY || process.env.GEMINI_API_KEY) : undefined);
+      const response = await fetch(`/voices/${gender}/${phrase.key}.mp3`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${gender}/${phrase.key}.mp3`);
+      }
       
-    if (!apiKey) {
-      console.error("Missing API Key. Please check your Vercel environment variables.");
+      const buffer = await response.arrayBuffer();
+      await saveToCache(cacheKey, buffer);
+      return buffer;
+    } catch (e) {
+      console.error(`[TTS] Static voice fetch error for ${phrase.key} (${gender}):`, e);
       return null;
     }
-    
-    const ai = new GoogleGenAI({ apiKey });
-
-    const delays = [500, 1000]; // 縮短重試次數與時間，避免卡住
-    for (let attempt = 0; attempt <= 2; attempt++) {
-      try {
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash-preview-tts",
-          contents: [{ parts: [{ text: `Say very loudly, forcefully, and energetically in Japanese: ${phrase.text}!` }] }],
-          config: {
-            responseModalities: ["AUDIO"],
-            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Fenrir' } } },
-            safetySettings: [
-              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
-            ]
-          }
-        });
-        
-        const base64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (!base64) {
-          throw new Error("No audio data returned from API. Possible safety block or quota issue.");
-        }
-
-        const binary = atob(base64);
-          const buffer = new ArrayBuffer(44 + binary.length);
-          const view = new DataView(buffer);
-          const writeString = (offset: number, str: string) => { for(let i=0; i<str.length; i++) view.setUint8(offset+i, str.charCodeAt(i)); };
-          writeString(0, 'RIFF'); view.setUint32(4, 36 + binary.length, true);
-          writeString(8, 'WAVE'); writeString(12, 'fmt '); view.setUint32(16, 16, true);
-          view.setUint16(20, 1, true); view.setUint16(22, 1, true);
-          view.setUint32(24, 24000, true); view.setUint32(28, 48000, true);
-          view.setUint16(32, 2, true); view.setUint16(34, 16, true);
-          writeString(36, 'data'); view.setUint32(40, binary.length, true);
-          for (let i=0; i<binary.length; i++) view.setUint8(44+i, binary.charCodeAt(i));
-          
-          await saveToCache(`hashiken_voice_${phrase.key}`, buffer);
-
-          return buffer;
-      } catch (e: any) {
-        console.error("Voice fetch error:", e);
-        if (attempt === 2) return null;
-        // 如果是 429 Too Many Requests，等待更長的時間
-        const isRateLimit = e?.status === 429 || e?.message?.includes('429') || e?.message?.includes('quota');
-        await new Promise(r => setTimeout(r, isRateLimit ? 4000 : delays[attempt]));
-      }
-    }
-    return null;
   };
 
   // 解碼音訊並載入記憶體
@@ -377,6 +318,8 @@ const HashikenGame = () => {
 
   useEffect(() => {
     let isMounted = true;
+    setAiLoadedStatus('loading');
+    
     const loadAllVoices = async () => {
       const phrases = [
         { key: 'irasshai', text: 'いらっしゃい' },
@@ -390,21 +333,19 @@ const HashikenGame = () => {
         { key: 'round_draw', text: 'もう一回' }
       ];
 
-      if (!rawVoiceBuffersRef.current) {
-        rawVoiceBuffersRef.current = {};
-      }
+      rawVoiceBuffersRef.current = {};
+      voiceBuffersRef.current = {};
 
       let loadedCount = 0;
       // 依序下載語音，背景執行不卡 UI
       for (const p of phrases) {
         if (!isMounted) return;
-        const buf = await fetchVoice(p);
+        
+        const buf = await fetchVoice(p, voiceGender);
         if (buf && isMounted) {
           rawVoiceBuffersRef.current[p.key] = buf;
           loadedCount++;
         }
-        // 增加請求間隔，避免瞬間觸發 API 頻率限制 (429 Too Many Requests)
-        if (isMounted) await new Promise(r => setTimeout(r, 1500));
       }
       
       if (isMounted) {
@@ -417,7 +358,7 @@ const HashikenGame = () => {
     };
     loadAllVoices();
     return () => { isMounted = false; };
-  }, []);
+  }, [voiceGender]);
 
   // 入座啟動：啟動音樂
   const handleBoot = async () => {
@@ -506,6 +447,15 @@ const HashikenGame = () => {
     
     setRpsResult({ player: playerHand, cpu: cpuHand, winner });
     setGameState('rps_result');
+    
+    // 播放猜拳結果語音
+    if (winner === 'draw') {
+      playVoiceAsync('round_draw', 1.0); // もう一回
+    } else if (winner === 'player') {
+      playVoiceAsync('lose', 1.0); // 負けた (對手說)
+    } else {
+      playVoiceAsync('win', 1.0); // 俺の勝ちだ (對手說)
+    }
     
     setTimeout(() => {
       if (winner === 'draw') {
@@ -729,6 +679,24 @@ const HashikenGame = () => {
           {aiLoadedStatus === 'error' && <p className="text-red-400 font-bold text-sm">⚠️ 部分語音下載失敗，將自動採用機器人語音</p>}
         </div>
 
+        <div className="mb-8 flex items-center justify-center gap-4 bg-stone-800 p-3 rounded-2xl border border-stone-700">
+          <span className="text-sm font-bold text-stone-400">語音選擇：</span>
+          <div className="flex bg-stone-900 rounded-xl p-1">
+            <button 
+              onClick={() => setVoiceGender('male')}
+              className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${voiceGender === 'male' ? 'bg-amber-600 text-white shadow-md' : 'text-stone-400 hover:text-stone-200'}`}
+            >
+              👨 男聲 (激昂)
+            </button>
+            <button 
+              onClick={() => setVoiceGender('female')}
+              className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${voiceGender === 'female' ? 'bg-amber-600 text-white shadow-md' : 'text-stone-400 hover:text-stone-200'}`}
+            >
+              👩 女聲 (清脆)
+            </button>
+          </div>
+        </div>
+
         <button 
           onClick={handleBoot}
           className="font-black text-xl py-4 px-10 rounded-xl shadow-[0_6px_0_rgb(80,15,15)] transition-all flex items-center gap-3 bg-[#8b2323] hover:bg-[#a52a2a] text-white active:translate-y-[6px] active:shadow-[0_0px_0_rgb(80,15,15)] animate-bounce-in"
@@ -747,6 +715,9 @@ const HashikenGame = () => {
         {/* Header 控制列 */}
         <div className="bg-[#1c1b1a] px-4 py-3 flex justify-between items-center shadow-lg relative z-20 border-b-2 border-[#8c7e63] shrink-0 min-h-[64px]">
           <div className="flex items-center gap-3">
+            <button onClick={() => setGameState('boot')} className="text-2xl opacity-80 hover:opacity-100 hover:scale-110 transition-all" title="回首頁設定">
+              🏠
+            </button>
             <button onClick={() => setShowRules(true)} className="text-2xl opacity-80 hover:opacity-100 hover:scale-110 transition-all" title="遊戲說明">
               📖
             </button>
